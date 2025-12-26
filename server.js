@@ -3,6 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const session = require('express-session');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 
 const app = express();
@@ -10,6 +11,22 @@ const PORT = process.env.PORT || 3000; // Render даёт порт, локаль
 
 // Настройка для работы за reverse proxy (Render)
 app.set('trust proxy', 1);
+
+// Путь к базе данных - используем постоянное хранилище Render Disk по умолчанию
+// Это стандартный путь для Render Disk, который сохраняет данные после перезапуска
+const DB_PATH = process.env.DATABASE_PATH || '/opt/render/.persistent-disk/users.db';
+const DB_DIR = path.dirname(DB_PATH);
+
+// Убеждаемся, что директория для БД существует
+if (!fs.existsSync(DB_DIR)) {
+    try {
+        fs.mkdirSync(DB_DIR, { recursive: true });
+        console.log(`Создана директория для БД: ${DB_DIR}`);
+    } catch (err) {
+        console.error(`Ошибка создания директории ${DB_DIR}:`, err);
+        console.warn('⚠️  ВНИМАНИЕ: Не удалось создать директорию для БД. Убедитесь, что Render Disk настроен в настройках сервиса.');
+    }
+}
 
 // Middleware
 app.use(express.json());
@@ -31,11 +48,12 @@ app.use(session({
 }));
 
 // Инициализация базы данных
-const db = new sqlite3.Database('./users.db', (err) => {
+console.log(`Используется путь к БД: ${DB_PATH}`);
+const db = new sqlite3.Database(DB_PATH, (err) => {
     if (err) {
         console.error('Ошибка подключения к БД:', err);
     } else {
-        console.log('Подключено к базе данных SQLite');
+        console.log(`Подключено к базе данных SQLite: ${DB_PATH}`);
     }
 });
 
