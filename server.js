@@ -48,7 +48,37 @@ db.run(`CREATE TABLE IF NOT EXISTS users (
     subscription_type TEXT DEFAULT NULL,
     subscription_expires DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)`);
+)`, (err) => {
+    if (err) {
+        console.error('Ошибка создания таблицы users:', err);
+    } else {
+        // Миграция: проверяем и исправляем структуру таблицы, если она неправильная
+        db.all("PRAGMA table_info(users)", (err, columns) => {
+            if (!err && columns) {
+                const hwidColumn = columns.find(col => col.name === 'hwid');
+                if (hwidColumn && hwidColumn.notnull === 1) {
+                    // Колонка hwid имеет NOT NULL - нужно исправить через пересоздание таблицы
+                    console.log('Исправление схемы таблицы users (hwid должен быть nullable)...');
+                    db.serialize(() => {
+                        db.run(`CREATE TABLE users_new (
+                            uid INTEGER PRIMARY KEY AUTOINCREMENT,
+                            username TEXT UNIQUE NOT NULL,
+                            password TEXT NOT NULL,
+                            hwid TEXT DEFAULT NULL,
+                            subscription_type TEXT DEFAULT NULL,
+                            subscription_expires DATETIME DEFAULT NULL,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )`);
+                        db.run(`INSERT INTO users_new SELECT uid, username, password, hwid, subscription_type, subscription_expires, created_at FROM users`);
+                        db.run(`DROP TABLE users`);
+                        db.run(`ALTER TABLE users_new RENAME TO users`);
+                        console.log('✅ Схема таблицы users исправлена');
+                    });
+                }
+            }
+        });
+    }
+});
 
 // Создание таблицы ключей
 db.run(`CREATE TABLE IF NOT EXISTS keys (
@@ -77,7 +107,7 @@ app.post('/api/register', async (req, res) => {
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword], function(err) {
+        db.run('INSERT INTO users (username, password, hwid) VALUES (?, ?, NULL)', [username, hashedPassword], function(err) {
             if (err) {
                 console.error('Ошибка регистрации:', err);
                 if (err.message.includes('UNIQUE')) return res.status(400).json({ success: false, message: 'Пользователь уже существует' });
