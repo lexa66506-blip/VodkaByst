@@ -8,6 +8,9 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000; // Render даёт порт, локально fallback 3000
 
+// Настройка для работы за reverse proxy (Render)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -20,7 +23,9 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false,
+        secure: process.env.NODE_ENV === 'production', // true на Render (HTTPS), false локально
+        httpOnly: true,
+        sameSite: 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000 // 30 дней
     }
 }));
@@ -74,6 +79,7 @@ app.post('/api/register', async (req, res) => {
         
         db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword], function(err) {
             if (err) {
+                console.error('Ошибка регистрации:', err);
                 if (err.message.includes('UNIQUE')) return res.status(400).json({ success: false, message: 'Пользователь уже существует' });
                 return res.status(500).json({ success: false, message: 'Ошибка сервера' });
             }
@@ -82,6 +88,7 @@ app.post('/api/register', async (req, res) => {
             res.json({ success: true, message: 'Регистрация успешна!', uid: this.lastID, username });
         });
     } catch (error) {
+        console.error('Ошибка при регистрации:', error);
         res.status(500).json({ success: false, message: 'Ошибка сервера' });
     }
 });
@@ -92,7 +99,10 @@ app.post('/api/login', (req, res) => {
     if (!username || !password) return res.status(400).json({ success: false, message: 'Заполните все поля' });
 
     db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
-        if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
+        if (err) {
+            console.error('Ошибка при входе:', err);
+            return res.status(500).json({ success: false, message: 'Ошибка сервера' });
+        }
         if (!user) return res.status(400).json({ success: false, message: 'Неверный логин или пароль' });
 
         const validPassword = await bcrypt.compare(password, user.password);
