@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>VodkaClient-ваш лучший выбор</title>
+<title>Dissent</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -906,30 +906,222 @@ nav {
 
 <body>
 
+<!-- Модальное окно с паролем для входа на сайт -->
+<div id="sitePasswordModal" style="
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+">
+    <div style="
+        background: rgba(25, 25, 25, 0.98);
+        border: 1px solid rgba(80, 80, 80, 0.4);
+        border-radius: 10px;
+        padding: 40px;
+        width: 90%;
+        max-width: 400px;
+        text-align: center;
+    ">
+        <h2 style="
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #fff;
+        ">Dissent</h2>
+        <p style="
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 25px;
+        ">Введите пароль для входа</p>
+        
+        <input type="password" id="sitePasswordInput" placeholder="Пароль" style="
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid rgba(60, 60, 60, 0.5);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 15px;
+            text-align: center;
+        ">
+        
+        <div id="sitePasswordError" style="
+            color: #ff5555;
+            font-size: 13px;
+            margin-bottom: 15px;
+            display: none;
+        ">Неверный пароль</div>
+        
+        <button onclick="checkSitePassword()" style="
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #1a1a1a, #0a0a0a);
+            border: 1px solid rgba(60, 60, 60, 0.5);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        " onmouseover="this.style.background='linear-gradient(135deg, #2a2a2a, #1a1a1a)'" onmouseout="this.style.background='linear-gradient(135deg, #1a1a1a, #0a0a0a)'">
+            Войти
+        </button>
+    </div>
+</div>
+
+<script>
+const SITE_PASSWORD = 'dissent2025';
+
+// Проверка сохраненного доступа
+if (localStorage.getItem('siteAccess') === 'granted') {
+    document.getElementById('sitePasswordModal').style.display = 'none';
+}
+
+function checkSitePassword() {
+    const input = document.getElementById('sitePasswordInput').value;
+    if (input === SITE_PASSWORD) {
+        localStorage.setItem('siteAccess', 'granted');
+        document.getElementById('sitePasswordModal').style.display = 'none';
+    } else {
+        document.getElementById('sitePasswordError').style.display = 'block';
+        document.getElementById('sitePasswordInput').value = '';
+    }
+}
+
+document.getElementById('sitePasswordInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') checkSitePassword();
+});
+</script>
+
+<!-- Кнопка "WebSite created by:" в правом верхнем углу -->
+<div id="creditsBtn" style="
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 1000;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">
+    <span style="
+        color: #888;
+        font-size: 12px;
+        font-weight: 500;
+    ">WebSite created by:</span>
+</div>
+
+<!-- Модальное окно с информацией о создателях -->
+<div id="creditsModal" style="
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+">
+    <div style="
+        background: rgba(25, 25, 25, 0.98);
+        border: 1px solid rgba(80, 80, 80, 0.4);
+        border-radius: 10px;
+        padding: 30px;
+        width: 90%;
+        max-width: 500px;
+        text-align: center;
+    ">
+        <h2 style="
+            font-size: 24px;
+            margin-bottom: 25px;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+        ">🎨 Создатели проекта</h2>
+        
+        <div style="
+            color: #ddd;
+            font-size: 15px;
+            line-height: 1.8;
+            text-align: left;
+            margin-bottom: 25px;
+        ">
+            <p style="margin-bottom: 12px;">
+                <span style="color: #aaa;">📐 Общий дизайн:</span> 
+                <span style="color: #fff; font-weight: 600;">Zhenkam aka LexaBLR</span>
+            </p>
+            
+            <p style="margin-bottom: 12px;">
+                <span style="color: #aaa;">⚙️ Функции:</span> 
+                <span style="color: #fff; font-weight: 600;">Zhenkam aka LexaBLR</span>
+            </p>
+            
+            <p style="margin-bottom: 12px;">
+                <span style="color: #aaa;">🚀 Лоудер и система HWID:</span> 
+                <span style="color: #fff; font-weight: 600;">LexaBLR</span>
+            </p>
+            
+            <p style="margin-bottom: 20px;">
+                <span style="color: #aaa;">🗄️ База данных:</span> 
+                <span style="color: #fff; font-weight: 600;">Zhenkam aka LexaBLR</span>
+            </p>
+            
+            <div style="
+                background: rgba(80, 80, 80, 0.2);
+                border-radius: 10px;
+                padding: 15px;
+                margin: 20px 0;
+                text-align: center;
+            ">
+                <p style="color: #fff; font-weight: 600; margin-bottom: 8px;">💪 Наша первая работа, мы старались!</p>
+                <p style="color: #aaa; font-size: 14px;">⏱️ Сайт был сделан за 3 дня</p>
+            </div>
+        </div>
+        
+        <button onclick="closeCreditsModal()" style="
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #3a3a3a, #555);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+            Закрыть
+        </button>
+    </div>
+</div>
+
 <!-- Анимированный фон -->
 <div class="particles" id="particles"></div>
 
 <!-- Навигация -->
 <nav>
-    <div class="logo">VodkaClient</div>
+    <div class="logo">Dissent</div>
     <div class="nav-links">
         <a href="https://t.me/SmertnixVteste" target="_blank">Поддержка</a>
-        <a href="#">Скачать лаунчер</a>
+        <a href="#" id="downloadBtn">Скачать лаунчер</a>
         <a href="#" id="buyBtn">Купить</a>
         <div class="lang-selector" id="langSelector">
             <span>Русский</span>
         </div>
         <div id="userInfo" class="user-info">
             <span id="usernameDisplay"></span>
-            <span class="user-uid" id="uidDisplay"></span>
-            <button class="btn-logout" id="logoutBtn">Выйти</button>
         </div>
         <button class="btn-login" id="loginBtn">Войти в кабинет</button>
     </div>
 </nav>
 
 <!-- Главная секция -->
-<section class="hero">
+<section class="hero" id="hero">
     <div class="hero-content">
         <h1>О нас</h1>
         <p>Мы предоставляем вам лучший клиент для комфортной игры, который даст вам наилучшие впечатления от игры.</p>
@@ -952,12 +1144,12 @@ nav {
                 
                 <!-- Внутренний куб с логотипом -->
                 <div class="inner-cube">
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
-                    <div class="inner-face"><img src="logo.png" alt="VodkaClient Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
+                    <div class="inner-face"><img src="Dissent.png" alt="Dissent Logo"></div>
                 </div>
             </div>
         </div>
@@ -1004,16 +1196,6 @@ nav {
     </div>
 </section>
 
-<!-- Секция с изображением -->
-<section class="vodka-section">
-    <div class="vodka-container">
-        <img src="Vodka.png" alt="Vodka" class="vodka-image">
-    </div>
-</section>
-
-    </div>
-</section>
-
 <!-- Модальное окно с тарифами -->
 <div id="pricingModal" class="modal">
     <div class="modal-content">
@@ -1023,20 +1205,35 @@ nav {
             <p>Выберите подходящий для вас план подписки</p>
         </div>
         <div class="pricing-grid">
+            <div class="pricing-card" style="border-color: rgba(50, 255, 50, 0.5);">
+                <h3 style="color: #55ff55;">🎁 1 День</h3>
+                <div class="price" style="color: #55ff55;">БЕСПЛАТНО</div>
+                <button class="btn-buy" onclick="getFreeDay()" style="border-color: rgba(50, 255, 50, 0.5); color: #55ff55;">Получить</button>
+            </div>
+            <div class="pricing-card">
+                <h3>1 Неделя</h3>
+                <div class="price">99 <span>рублей</span></div>
+                <a href="https://t.me/SmertnixVteste" target="_blank" class="btn-buy">Оплатить</a>
+            </div>
             <div class="pricing-card">
                 <h3>1 Месяц</h3>
-                <div class="price">99 <span>рублей</span></div>
-                <a href="https://t.me/Attack_T1rov" target="_blank" class="btn-buy">Оплатить</a>
+                <div class="price">199 <span>рублей</span></div>
+                <a href="https://t.me/SmertnixVteste" target="_blank" class="btn-buy">Оплатить</a>
             </div>
             <div class="pricing-card">
                 <h3>6 Месяцев</h3>
-                <div class="price">299 <span>рублей</span></div>
-                <a href="https://t.me/Attack_T1rov" target="_blank" class="btn-buy">Оплатить</a>
+                <div class="price">499 <span>рублей</span></div>
+                <a href="https://t.me/SmertnixVteste" target="_blank" class="btn-buy">Оплатить</a>
             </div>
             <div class="pricing-card">
                 <h3>LifeTime</h3>
-                <div class="price">499 <span>рублей</span></div>
-                <a href="https://t.me/Attack_T1rov" target="_blank" class="btn-buy">Оплатить</a>
+                <div class="price">799 <span>рублей</span></div>
+                <a href="https://t.me/SmertnixVteste" target="_blank" class="btn-buy">Оплатить</a>
+            </div>
+            <div class="pricing-card" style="border-color: rgba(255, 165, 0, 0.5);">
+                <h3 style="color: #ffa500;">🔄 Сброс HWID</h3>
+                <div class="price">149 <span>рублей</span></div>
+                <a href="https://t.me/SmertnixVteste" target="_blank" class="btn-buy" style="border-color: rgba(255, 165, 0, 0.5);">Оплатить</a>
             </div>
         </div>
     </div>
@@ -1073,6 +1270,10 @@ nav {
             <div class="form-group">
                 <label>Логин</label>
                 <input type="text" id="registerUsername" placeholder="Минимум 3 символа" required>
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="registerEmail" placeholder="Для восстановления аккаунта" required>
             </div>
             <div class="form-group">
                 <label>Пароль</label>
@@ -1191,24 +1392,25 @@ registerForm.addEventListener('submit', async (e) => {
     hideMessages();
     
     const username = document.getElementById('registerUsername').value;
+    const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
     
     try {
         const response = await fetch('/api/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({ username, email, password })
         });
         
         const data = await response.json();
         
         if (data.success) {
-            showSuccess(`Регистрация успешна!\nВаш UID: ${data.uid}\nВаш HWID: ${data.hwid}\n\nСохраните HWID для входа в лоудер!`);
+            showSuccess(`Регистрация успешна! Ваш UID: ${data.uid}`);
             setTimeout(() => {
                 updateUserInfo(data.username, data.uid);
                 authModal.classList.remove('active');
                 registerForm.reset();
-            }, 5000);
+            }, 2000);
         } else {
             showError(data.message);
         }
@@ -1249,21 +1451,9 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
-// Выход
-logoutBtn.addEventListener('click', async () => {
-    try {
-        await fetch('/api/logout', { method: 'POST' });
-        loginBtn.style.display = 'block';
-        userInfo.classList.remove('active');
-    } catch (error) {
-        console.error('Ошибка выхода');
-    }
-});
-
 // Обновление информации о пользователе
 function updateUserInfo(username, uid) {
     usernameDisplay.textContent = username;
-    uidDisplay.textContent = `UID: ${uid}`;
     loginBtn.style.display = 'none';
     userInfo.classList.add('active');
     
@@ -1294,7 +1484,7 @@ checkAuth();
 // Кнопка "Смотреть" - открывает видео на YouTube
 const watchBtn = document.getElementById('watchBtn');
 watchBtn.addEventListener('click', () => {
-    window.open('https://www.youtube.com/@VodkaClient', '_blank');
+    window.open('https://www.youtube.com/@Dissent', '_blank');
 });
 
 // Кнопка "Подробнее" - скроллит к секции с преимуществами
@@ -1305,10 +1495,177 @@ detailsBtn.addEventListener('click', () => {
     });
 });
 
+// Кнопка "Скачать лаунчер"
+const downloadBtn = document.getElementById('downloadBtn');
+downloadBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const loaderUrl = 'https://www.dropbox.com/scl/fi/jafkwhufcnxphgn04j0hz/loader.exe?rlkey=ugef0floq6itnxrb2pdy9qf6i&st=fe0pteib&dl=1';
+    window.open(loaderUrl, '_blank');
+});
+
 // Кнопка "Русский" - показывает доступные языки
 const langSelector = document.getElementById('langSelector');
 langSelector.addEventListener('click', () => {
     alert('Доступные языки:\n🇷🇺 Русский (текущий)\n🇬🇧 English (скоро)\n🇨🇳 中文 (скоро)');
+});
+
+// Получить бесплатный день
+async function getFreeDay() {
+    try {
+        const response = await fetch('/api/get-free-day', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ ' + data.message);
+            modal.classList.remove('active');
+        } else {
+            alert('❌ ' + data.message);
+        }
+    } catch (error) {
+        alert('❌ Сначала войдите в аккаунт!');
+    }
+}
+</script>
+
+<!-- Футер -->
+<footer style="
+    position: relative;
+    bottom: 0;
+    width: 100%;
+    background: rgba(10, 10, 10, 0.9);
+    border-top: 1px solid rgba(80, 80, 80, 0.3);
+    padding: 20px 0;
+    text-align: center;
+    margin-top: 50px;
+    z-index: 1000;
+">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">
+        <p style="
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 10px;
+        ">
+            Copyright © 2025 Dissent. Все права защищены.<br>
+            Проект никак не относится к Mojang, AB.
+        </p>
+        <button id="rulesBtn" style="
+            background: rgba(80, 80, 80, 0.2);
+            border: 1px solid rgba(80, 80, 80, 0.4);
+            border-radius: 10px;
+            color: #aaa;
+            padding: 8px 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        " onmouseover="this.style.background='rgba(80, 80, 80, 0.4)'" onmouseout="this.style.background='rgba(80, 80, 80, 0.2)'">
+            Правила пользования
+        </button>
+    </div>
+</footer>
+
+<!-- Модальное окно с правилами -->
+<div id="rulesModal" style="
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+">
+    <div style="
+        background: rgba(25, 25, 25, 0.98);
+        border: 1px solid rgba(80, 80, 80, 0.4);
+        border-radius: 10px;
+        padding: 30px;
+        width: 90%;
+        max-width: 700px;
+        max-height: 80vh;
+        overflow-y: auto;
+    ">
+        <h2 style="
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #fff;
+            text-align: center;
+        ">Правила пользования</h2>
+        
+        <div style="
+            color: #ddd;
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: left;
+        ">
+            <p style="margin-bottom: 15px;"><strong>1. Пользователю запрещено</strong> - декомпилировать, взламывать, патчить, отлаживать или использовать другие методы обратного инжиниринга нашего продукта, а также иным образом вмешиваться в работу любого программного обеспечения, содержащегося в сервисах Dissent.</p>
+            
+            <p style="margin-bottom: 15px;"><strong>2. Пользователю запрещено</strong> - использовать наши продукты, если Вы (непосредственно или косвенно) связаны с разработкой античитов, клиентов, чит-клиентов (могут быть исключения).</p>
+            
+            <p style="margin-bottom: 15px;"><strong>3. Пользователю запрещено</strong> - осуществлять любые действия, направленные на подрыв репутации и качества нашей продукции.</p>
+            
+            <p style="margin-bottom: 15px;"><strong>4. Пользователю запрещено</strong> - передавать, продавать, покупать или иным образом распоряжаться своим или чужими аккаунтами, а также использовать учетные записи, не принадлежащие ему.</p>
+            
+            <p style="margin-bottom: 15px;"><strong>5. Пользователю запрещено</strong> - распространять файлы лаунчера, сайта или клиента.</p>
+            
+            <p style="margin-bottom: 15px;"><strong>6. Пользователю запрещено</strong> - заниматься вредоносной деятельностью, включая, но не ограничиваясь, такими деяниями как мошенничество, обман, DDoS-атаки, раскрытие личной или частной информации. Если вы вовлечены в это в какой-либо форме, администрация может принять решение приостановить действие вашей учетной записи.</p>
+            
+            <p style="margin-bottom: 15px;"><strong>7. Администрация не несет ответственности за внутриигровые блокировки.</strong> Продукты используются на Ваш страх и риск.</p>
+            
+            <p style="margin-bottom: 20px; color: #ff6b6b;"><strong>Администрация имеет право приостановить действие всех ваших существующих и будущих учетных записей на данном веб-сайте в случае нарушения данных правил или в других случаях по своему усмотрению.</strong></p>
+        </div>
+        
+        <button onclick="closeRulesModal()" style="
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #3a3a3a, #555);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+            Закрыть
+        </button>
+    </div>
+</div>
+
+<script>
+// Функции для модального окна с правилами
+document.getElementById('rulesBtn').addEventListener('click', () => {
+    document.getElementById('rulesModal').style.display = 'flex';
+});
+
+function closeRulesModal() {
+    document.getElementById('rulesModal').style.display = 'none';
+}
+
+// Закрытие по клику вне модального окна
+document.getElementById('rulesModal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('rulesModal')) {
+        closeRulesModal();
+    }
+});
+
+// Функции для модального окна с информацией о создателях
+document.getElementById('creditsBtn').addEventListener('click', () => {
+    document.getElementById('creditsModal').style.display = 'flex';
+});
+
+function closeCreditsModal() {
+    document.getElementById('creditsModal').style.display = 'none';
+}
+
+// Закрытие по клику вне модального окна
+document.getElementById('creditsModal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('creditsModal')) {
+        closeCreditsModal();
+    }
 });
 </script>
 
