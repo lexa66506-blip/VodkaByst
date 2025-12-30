@@ -1,191 +1,187 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 const session = require('express-session');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+const pgSession = require('connect-pg-simple')(session);
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Render даёт порт, локально fallback 3000
+const PORT = process.env.PORT || 3000;
 
-// Настройка для работы за reverse proxy (Render)
-app.set('trust proxy', 1);
-
-// Путь к базе данных - используем постоянное хранилище Render Disk по умолчанию
-// Это стандартный путь для Render Disk, который сохраняет данные после перезапуска
-const DB_PATH = process.env.DATABASE_PATH || '/opt/render/.persistent-disk/users.db';
-const DB_DIR = path.dirname(DB_PATH);
-
-// Убеждаемся, что директория для БД существует
-if (!fs.existsSync(DB_DIR)) {
-    try {
-        fs.mkdirSync(DB_DIR, { recursive: true });
-        console.log(`Создана директория для БД: ${DB_DIR}`);
-    } catch (err) {
-        console.error(`Ошибка создания директории ${DB_DIR}:`, err);
-        console.warn('⚠️  ВНИМАНИЕ: Не удалось создать директорию для БД. Убедитесь, что Render Disk настроен в настройках сервиса.');
-    }
-}
+// PostgreSQL подключение (Render даёт DATABASE_URL)
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Статика — корневая папка проекта (где лежат HTML файлы)
 app.use(express.static(__dirname));
 
+// Сессии с хранением в PostgreSQL (не теряются при перезагрузке)
 app.use(session({
-    secret: 'vodka-client-secret-key',
+    store: new pgSession({
+        pool: pool,
+        tableName: 'user_sessions',
+        createTableIfMissing: true
+    }),
+    secret: 'dissent-client-secret-key-2024',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production', // true на Render (HTTPS), false локально
+        secure: process.env.NODE_ENV === 'production', // true на Render (HTTPS)
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
         httpOnly: true,
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 дней
+        sameSite: 'lax'
     }
 }));
 
-// Инициализация базы данных
-console.log(`Используется путь к БД: ${DB_PATH}`);
-const db = new sqlite3.Database(DB_PATH, (err) => {
-    if (err) {
-        console.error('Ошибка подключения к БД:', err);
-    } else {
-        console.log(`Подключено к базе данных SQLite: ${DB_PATH}`);
+// Trust proxy для Render (нужно для secure cookies за прокси)
+app.set('trust proxy', 1);
+
+// Инициализация таблиц
+async function initDB() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                uid SERIAL PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                email VARCHAR(255) DEFAULT NULL,
+                hwid VARCHAR(255) DEFAULT NULL,
+                subscription_type VARCHAR(50) DEFAULT NULL,
+                subscription_expires TIMESTAMP DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        // Добавляем колонку email если её нет
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS keys (
+                id SERIAL PRIMARY KEY,
+                key_code VARCHAR(255) UNIQUE NOT NULL,
+                subscription_type VARCHAR(50) NOT NULL,
+                duration_days INTEGER NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                used_by INTEGER DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                used_at TIMESTAMP DEFAULT NULL
+            )
+        `);
+        
+        // Таблица для отслеживания бесплатных ключей (защита от абуза)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS free_keys_used (
+                id SERIAL PRIMARY KEY,
+                ip_address VARCHAR(255),
+                hwid VARCHAR(255),
+                user_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        console.log('✅ Таблицы PostgreSQL созданы');
+    } catch (err) {
+        console.error('❌ Ошибка создания таблиц:', err);
     }
-});
-
-// Создание таблицы пользователей (hwid может быть NULL - заполняется при первом входе в лоадер)
-db.run(`CREATE TABLE IF NOT EXISTS users (
-    uid INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    hwid TEXT DEFAULT NULL,
-    subscription_type TEXT DEFAULT NULL,
-    subscription_expires DATETIME DEFAULT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)`, (err) => {
-    if (err) {
-        console.error('Ошибка создания таблицы users:', err);
-    } else {
-        // Миграция: проверяем и исправляем структуру таблицы, если она неправильная
-        db.all("PRAGMA table_info(users)", (err, columns) => {
-            if (!err && columns) {
-                const hwidColumn = columns.find(col => col.name === 'hwid');
-                if (hwidColumn && hwidColumn.notnull === 1) {
-                    // Колонка hwid имеет NOT NULL - нужно исправить через пересоздание таблицы
-                    console.log('Исправление схемы таблицы users (hwid должен быть nullable)...');
-                    db.serialize(() => {
-                        db.run(`CREATE TABLE users_new (
-                            uid INTEGER PRIMARY KEY AUTOINCREMENT,
-                            username TEXT UNIQUE NOT NULL,
-                            password TEXT NOT NULL,
-                            hwid TEXT DEFAULT NULL,
-                            subscription_type TEXT DEFAULT NULL,
-                            subscription_expires DATETIME DEFAULT NULL,
-                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )`);
-                        db.run(`INSERT INTO users_new SELECT uid, username, password, hwid, subscription_type, subscription_expires, created_at FROM users`);
-                        db.run(`DROP TABLE users`);
-                        db.run(`ALTER TABLE users_new RENAME TO users`);
-                        console.log('✅ Схема таблицы users исправлена');
-                    });
-                }
-            }
-        });
-    }
-});
-
-// Создание таблицы ключей
-db.run(`CREATE TABLE IF NOT EXISTS keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_code TEXT UNIQUE NOT NULL,
-    subscription_type TEXT NOT NULL,
-    duration_days INTEGER NOT NULL,
-    used INTEGER DEFAULT 0,
-    used_by INTEGER DEFAULT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    used_at DATETIME DEFAULT NULL
-)`);
-
-// Функция генерации уникального HWID
-function generateHwid() {
-    return 'HWID-' + crypto.randomBytes(16).toString('hex').toUpperCase();
 }
 
-// API: Регистрация (без HWID - он запишется при первом входе в лоадер)
+initDB();
+
+// API: Регистрация
 app.post('/api/register', async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ success: false, message: 'Заполните все поля' });
-    if (username.length < 3) return res.status(400).json({ success: false, message: 'Логин должен быть минимум 3 символа' });
-    if (password.length < 6) return res.status(400).json({ success: false, message: 'Пароль должен быть минимум 6 символов' });
+    const { username, password, email } = req.body;
+    if (!username || !password || !email) return res.status(400).json({ success: false, message: 'Заполните все поля' });
+    if (username.length < 3) return res.status(400).json({ success: false, message: 'Логин минимум 3 символа' });
+    if (password.length < 6) return res.status(400).json({ success: false, message: 'Пароль минимум 6 символов' });
+    if (!email.includes('@')) return res.status(400).json({ success: false, message: 'Некорректный email' });
+    
+    // Проверка на английские буквы, цифры и спецсимволы (без русских)
+    const validChars = /^[a-zA-Z0-9_\-\.]+$/;
+    const validPassword = /^[a-zA-Z0-9!@#$%^&*()_\-+=\[\]{}|;:'"<>,.?/\\~`]+$/;
+    
+    if (!validChars.test(username)) {
+        return res.status(400).json({ success: false, message: 'Логин только английские буквы, цифры и _-.' });
+    }
+    if (!validPassword.test(password)) {
+        return res.status(400).json({ success: false, message: 'Пароль только английские буквы, цифры и спецсимволы' });
+    }
 
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
+        const result = await pool.query(
+            'INSERT INTO users (username, password, email) VALUES ($1, $2, $3) RETURNING uid',
+            [username, hashedPassword, email]
+        );
         
-        db.run('INSERT INTO users (username, password, hwid) VALUES (?, ?, NULL)', [username, hashedPassword], function(err) {
-            if (err) {
-                console.error('Ошибка регистрации:', err);
-                if (err.message.includes('UNIQUE')) return res.status(400).json({ success: false, message: 'Пользователь уже существует' });
-                return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-            }
-            req.session.userId = this.lastID;
-            req.session.username = username;
-            res.json({ success: true, message: 'Регистрация успешна!', uid: this.lastID, username });
-        });
-    } catch (error) {
-        console.error('Ошибка при регистрации:', error);
+        req.session.userId = result.rows[0].uid;
+        req.session.username = username;
+        res.json({ success: true, message: 'Регистрация успешна!', uid: result.rows[0].uid, username });
+    } catch (err) {
+        if (err.code === '23505') return res.status(400).json({ success: false, message: 'Пользователь уже существует' });
+        console.error(err);
         res.status(500).json({ success: false, message: 'Ошибка сервера' });
     }
 });
 
 // API: Вход
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ success: false, message: 'Заполните все поля' });
 
-    db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
-        if (err) {
-            console.error('Ошибка при входе:', err);
-            return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-        }
-        if (!user) return res.status(400).json({ success: false, message: 'Неверный логин или пароль' });
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (result.rows.length === 0) return res.status(400).json({ success: false, message: 'Неверный логин или пароль' });
 
+        const user = result.rows[0];
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) return res.status(400).json({ success: false, message: 'Неверный логин или пароль' });
 
         req.session.userId = user.uid;
         req.session.username = user.username;
-
         res.json({ success: true, message: 'Вход выполнен!', uid: user.uid, username: user.username });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
 });
 
 // API: Проверка авторизации
-app.get('/api/check-auth', (req, res) => {
-    if (req.session.userId) {
-        db.get('SELECT uid, username, created_at, subscription_type, subscription_expires FROM users WHERE uid = ?', [req.session.userId], (err, user) => {
-            if (err || !user) return res.json({ authenticated: false });
+app.get('/api/check-auth', async (req, res) => {
+    if (!req.session.userId) return res.json({ authenticated: false });
 
-            let isActive = false;
-            if (user.subscription_type) {
-                if (user.subscription_type === 'lifetime') isActive = true;
-                else if (user.subscription_expires) isActive = new Date(user.subscription_expires) > new Date();
-            }
+    try {
+        const result = await pool.query(
+            'SELECT uid, username, email, hwid, created_at, subscription_type, subscription_expires FROM users WHERE uid = $1',
+            [req.session.userId]
+        );
+        
+        if (result.rows.length === 0) return res.json({ authenticated: false });
+        const user = result.rows[0];
 
-            res.json({
-                authenticated: true,
-                uid: user.uid,
-                username: user.username,
-                created_at: user.created_at,
-                subscription_type: user.subscription_type,
-                subscription_expires: user.subscription_expires,
-                subscription_active: isActive
-            });
+        let isActive = false;
+        if (user.subscription_type) {
+            if (user.subscription_type === 'lifetime') isActive = true;
+            else if (user.subscription_expires) isActive = new Date(user.subscription_expires) > new Date();
+        }
+
+        res.json({
+            authenticated: true,
+            uid: user.uid,
+            username: user.username,
+            email: user.email,
+            hwid: user.hwid,
+            created_at: user.created_at,
+            subscription_type: user.subscription_type,
+            subscription_expires: user.subscription_expires,
+            subscription_active: isActive
         });
-    } else res.json({ authenticated: false });
+    } catch (err) {
+        console.error(err);
+        res.json({ authenticated: false });
+    }
 });
 
 // API: Выход
@@ -194,166 +190,207 @@ app.post('/api/logout', (req, res) => {
     res.json({ success: true, message: 'Выход выполнен' });
 });
 
-// API: Админ-панель — все пользователи
-app.get('/api/admin/users', (req, res) => {
-    db.all('SELECT uid, username, hwid, created_at, subscription_type, subscription_expires FROM users ORDER BY uid', [], (err, users) => {
-        if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-        res.json({ success: true, users });
-    });
+// API: Смена пароля
+app.post('/api/change-password', async (req, res) => {
+    const { old_password, new_password } = req.body;
+    const userId = req.session.userId;
+    
+    if (!userId) return res.status(401).json({ success: false, message: 'Не авторизован' });
+    if (!old_password || !new_password) return res.status(400).json({ success: false, message: 'Заполните все поля' });
+    if (new_password.length < 6) return res.status(400).json({ success: false, message: 'Новый пароль минимум 6 символов' });
+
+    try {
+        const result = await pool.query('SELECT password FROM users WHERE uid = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Пользователь не найден' });
+
+        const validPassword = await bcrypt.compare(old_password, result.rows[0].password);
+        if (!validPassword) return res.status(400).json({ success: false, message: 'Неверный текущий пароль' });
+
+        const hashedPassword = await bcrypt.hash(new_password, 10);
+        await pool.query('UPDATE users SET password = $1 WHERE uid = $2', [hashedPassword, userId]);
+
+        res.json({ success: true, message: 'Пароль успешно изменен!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
+});
+
+// API: Админ - все пользователи
+app.get('/api/admin/users', async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT uid, username, hwid, created_at, subscription_type, subscription_expires FROM users ORDER BY uid'
+        );
+        res.json({ success: true, users: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
 });
 
 // API: Удаление пользователя
-app.post('/api/admin/delete-user', (req, res) => {
+app.post('/api/admin/delete-user', async (req, res) => {
     const { uid } = req.body;
-    db.run('DELETE FROM users WHERE uid = ?', [uid], function(err) {
-        if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    try {
+        await pool.query('DELETE FROM users WHERE uid = $1', [uid]);
         res.json({ success: true, message: 'Пользователь удален' });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
 });
 
 // API: Генерация ключа
-app.post('/api/admin/generate-key', (req, res) => {
+app.post('/api/admin/generate-key', async (req, res) => {
     const { subscription_type, duration_days } = req.body;
     const keyCode = 'VDK-' + Math.random().toString(36).substring(2, 10).toUpperCase() + '-' + Math.random().toString(36).substring(2, 10).toUpperCase();
 
-    db.run('INSERT INTO keys (key_code, subscription_type, duration_days) VALUES (?, ?, ?)',
-        [keyCode, subscription_type, duration_days], function(err) {
-            if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-            res.json({ success: true, key: keyCode });
-        }
-    );
+    try {
+        await pool.query(
+            'INSERT INTO keys (key_code, subscription_type, duration_days) VALUES ($1, $2, $3)',
+            [keyCode, subscription_type, duration_days]
+        );
+        res.json({ success: true, key: keyCode });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
 });
 
-// API: Получить все ключи
-app.get('/api/admin/keys', (req, res) => {
-    db.all('SELECT * FROM keys ORDER BY id DESC', [], (err, keys) => {
-        if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-        res.json({ success: true, keys });
-    });
+// API: Все ключи
+app.get('/api/admin/keys', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM keys ORDER BY id DESC');
+        res.json({ success: true, keys: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
 });
 
 // API: Активация ключа
-app.post('/api/activate-key', (req, res) => {
+app.post('/api/activate-key', async (req, res) => {
     const { key_code } = req.body;
     const userId = req.session.userId;
     if (!userId) return res.status(401).json({ success: false, message: 'Не авторизован' });
     if (!key_code) return res.status(400).json({ success: false, message: 'Введите ключ' });
 
-    db.get('SELECT * FROM keys WHERE key_code = ?', [key_code], (err, key) => {
-        if (err) return res.status(500).json({ success: false, message: 'Ошибка сервера' });
-        if (!key) return res.status(400).json({ success: false, message: 'Ключ не найден' });
+    try {
+        const keyResult = await pool.query('SELECT * FROM keys WHERE key_code = $1', [key_code]);
+        if (keyResult.rows.length === 0) return res.status(400).json({ success: false, message: 'Ключ не найден' });
+        
+        const key = keyResult.rows[0];
         if (key.used) return res.status(400).json({ success: false, message: 'Ключ уже использован' });
 
-        let expiresDate = null;
+        // Если это ключ сброса HWID
+        if (key.subscription_type === 'hwid_reset') {
+            await pool.query('UPDATE users SET hwid = NULL WHERE uid = $1', [userId]);
+            await pool.query(
+                'UPDATE keys SET used = TRUE, used_by = $1, used_at = CURRENT_TIMESTAMP WHERE key_code = $2',
+                [userId, key_code]
+            );
+            return res.json({ success: true, message: 'HWID успешно сброшен! Теперь можете войти с другого ПК.' });
+        }
+
+        let expiresDate;
         if (key.subscription_type === 'lifetime') {
             const now = new Date();
             now.setFullYear(now.getFullYear() + 1337);
             expiresDate = now.toISOString();
         } else {
-            const now = new Date();
-            now.setDate(now.getDate() + key.duration_days);
-            expiresDate = now.toISOString();
+            // Проверяем текущую подписку и продлеваем если активна
+            const userResult = await pool.query('SELECT subscription_expires FROM users WHERE uid = $1', [userId]);
+            const user = userResult.rows[0];
+            let startDate = new Date();
+            
+            if (user.subscription_expires && new Date(user.subscription_expires) > new Date()) {
+                startDate = new Date(user.subscription_expires);
+            }
+            
+            startDate.setDate(startDate.getDate() + key.duration_days);
+            expiresDate = startDate.toISOString();
         }
 
-        db.run('UPDATE users SET subscription_type = ?, subscription_expires = ? WHERE uid = ?',
-            [key.subscription_type, expiresDate, userId], function(err) {
-                if (err) return res.status(500).json({ success: false, message: 'Ошибка активации' });
-
-                db.run('UPDATE keys SET used = 1, used_by = ?, used_at = CURRENT_TIMESTAMP WHERE key_code = ?',
-                    [userId, key_code], (err) => {
-                        if (err) console.error('Ошибка обновления ключа:', err);
-                    }
-                );
-
-                res.json({ success: true, message: 'Подписка активирована!', subscription_type: key.subscription_type, expires: expiresDate });
-            }
+        await pool.query(
+            'UPDATE users SET subscription_type = $1, subscription_expires = $2 WHERE uid = $3',
+            [key.subscription_type, expiresDate, userId]
         );
-    });
+        
+        await pool.query(
+            'UPDATE keys SET used = TRUE, used_by = $1, used_at = CURRENT_TIMESTAMP WHERE key_code = $2',
+            [userId, key_code]
+        );
+
+        res.json({ success: true, message: 'Подписка активирована!', subscription_type: key.subscription_type, expires: expiresDate });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка активации' });
+    }
 });
 
+
 // ========================================
-// API ДЛЯ ЛОАДЕРА (ЛАУНЧЕРА)
+// API ДЛЯ ЛОАДЕРА
 // ========================================
 
-// API: Проверка подписки по логину и паролю (для лоадера)
 app.post('/api/launcher/check-subscription', async (req, res) => {
     const { username, password, hwid } = req.body;
     
     if (!username || !password) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Введите логин и пароль',
-            has_subscription: false
-        });
+        return res.status(400).json({ success: false, message: 'Введите логин и пароль', has_subscription: false });
     }
-
     if (!hwid) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'HWID не передан',
-            has_subscription: false
-        });
+        return res.status(400).json({ success: false, message: 'HWID не передан', has_subscription: false });
     }
 
-    db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
-        if (err) {
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Ошибка сервера',
-                has_subscription: false
-            });
-        }
-        
-        if (!user) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Неверный логин или пароль',
-                has_subscription: false
-            });
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (result.rows.length === 0) {
+            return res.status(401).json({ success: false, message: 'Неверный логин или пароль', has_subscription: false });
         }
 
-        // Проверка пароля
+        const user = result.rows[0];
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
-            return res.status(401).json({ 
+            return res.status(401).json({ success: false, message: 'Неверный логин или пароль', has_subscription: false });
+        }
+
+        // Проверка: этот HWID уже использовался для бесплатного ключа на другом аккаунте?
+        const freeKeyCheck = await pool.query(
+            'SELECT * FROM free_keys_used WHERE hwid = $1 AND user_id != $2',
+            [hwid, user.uid]
+        );
+        if (freeKeyCheck.rows.length > 0) {
+            return res.status(403).json({ 
                 success: false, 
-                message: 'Неверный логин или пароль',
-                has_subscription: false
+                message: 'Вы уже получали бесплатный ключ на другом аккаунте', 
+                has_subscription: false,
+                banned: true
             });
         }
 
-        // HWID логика: если пустой - записываем, если есть - проверяем что совпадает
+        // HWID логика
         if (!user.hwid) {
-            // Первый вход - записываем HWID (разрешаем один HWID на несколько аккаунтов)
-            db.run('UPDATE users SET hwid = ? WHERE uid = ?', [hwid, user.uid], (err) => {
-                if (err) console.error('Ошибка записи HWID:', err);
-                else console.log(`✅ HWID записан для ${username}: ${hwid}`);
-            });
+            await pool.query('UPDATE users SET hwid = $1 WHERE uid = $2', [hwid, user.uid]);
+            console.log(`✅ HWID записан для ${username}: ${hwid}`);
+            
+            // Обновляем HWID в таблице бесплатных ключей если есть
+            await pool.query('UPDATE free_keys_used SET hwid = $1 WHERE user_id = $2', [hwid, user.uid]);
         } else if (user.hwid !== hwid) {
-            // HWID не совпадает - этот аккаунт привязан к другому ПК
-            return res.status(403).json({ 
-                success: false, 
-                message: 'Аккаунт привязан к другому ПК',
-                has_subscription: false
-            });
+            return res.status(403).json({ success: false, message: 'Аккаунт привязан к другому ПК', has_subscription: false });
         }
 
         // Проверка подписки
         let hasSubscription = false;
-        let subscriptionInfo = {
-            type: user.subscription_type,
-            expires: user.subscription_expires,
-            active: false
-        };
+        let subscriptionInfo = { type: user.subscription_type, expires: user.subscription_expires, active: false };
 
         if (user.subscription_type) {
             if (user.subscription_type === 'lifetime') {
                 hasSubscription = true;
                 subscriptionInfo.active = true;
             } else if (user.subscription_expires) {
-                const expiresDate = new Date(user.subscription_expires);
-                const now = new Date();
-                hasSubscription = expiresDate > now;
+                hasSubscription = new Date(user.subscription_expires) > new Date();
                 subscriptionInfo.active = hasSubscription;
             }
         }
@@ -363,117 +400,141 @@ app.post('/api/launcher/check-subscription', async (req, res) => {
             message: hasSubscription ? 'Подписка активна' : 'Подписка отсутствует или истекла',
             has_subscription: hasSubscription,
             hwid: user.hwid || hwid,
-            user: {
-                uid: user.uid,
-                username: user.username,
-                created_at: user.created_at
-            },
+            user: { uid: user.uid, username: user.username, created_at: user.created_at },
             subscription: subscriptionInfo
         });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера', has_subscription: false });
+    }
 });
 
-// API: Быстрая проверка подписки по UID (для лоадера)
-app.get('/api/launcher/check-uid/:uid', (req, res) => {
+app.get('/api/launcher/check-uid/:uid', async (req, res) => {
     const { uid } = req.params;
     
-    db.get('SELECT uid, username, subscription_type, subscription_expires FROM users WHERE uid = ?', [uid], (err, user) => {
-        if (err) {
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Ошибка сервера',
-                has_subscription: false
-            });
-        }
+    try {
+        const result = await pool.query(
+            'SELECT uid, username, subscription_type, subscription_expires FROM users WHERE uid = $1',
+            [uid]
+        );
         
-        if (!user) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Пользователь не найден',
-                has_subscription: false
-            });
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Пользователь не найден', has_subscription: false });
         }
 
-        // Проверка подписки
+        const user = result.rows[0];
         let hasSubscription = false;
+        
         if (user.subscription_type) {
-            if (user.subscription_type === 'lifetime') {
-                hasSubscription = true;
-            } else if (user.subscription_expires) {
-                const expiresDate = new Date(user.subscription_expires);
-                const now = new Date();
-                hasSubscription = expiresDate > now;
-            }
+            if (user.subscription_type === 'lifetime') hasSubscription = true;
+            else if (user.subscription_expires) hasSubscription = new Date(user.subscription_expires) > new Date();
         }
 
         res.json({
             success: true,
             has_subscription: hasSubscription,
-            user: {
-                uid: user.uid,
-                username: user.username
-            },
-            subscription: {
-                type: user.subscription_type,
-                expires: user.subscription_expires,
-                active: hasSubscription
-            }
+            user: { uid: user.uid, username: user.username },
+            subscription: { type: user.subscription_type, expires: user.subscription_expires, active: hasSubscription }
         });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера', has_subscription: false });
+    }
 });
 
-// API: ПОЛНЫЙ СБРОС БАЗЫ ДАННЫХ (ОПАСНО!)
-app.post('/api/admin/reset-database', (req, res) => {
-    const { confirm_password } = req.body;
-    
-    // Защита: требуется специальный пароль
-    if (confirm_password !== 'RESET_ALL_DATA_2024') {
-        return res.status(403).json({ 
-            success: false, 
-            message: 'Неверный пароль подтверждения' 
-        });
+// API: Сброс HWID пользователя (админ)
+app.post('/api/admin/reset-hwid', async (req, res) => {
+    const { uid } = req.body;
+    try {
+        await pool.query('UPDATE users SET hwid = NULL WHERE uid = $1', [uid]);
+        res.json({ success: true, message: 'HWID сброшен' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
     }
+});
 
-    // Удаляем все данные из таблиц
-    db.serialize(() => {
-        db.run('DELETE FROM users', (err) => {
-            if (err) {
-                console.error('Ошибка удаления пользователей:', err);
-                return res.status(500).json({ 
-                    success: false, 
-                    message: 'Ошибка при удалении пользователей' 
-                });
+// API: Получить бесплатный 1 день (с защитой от абуза)
+app.post('/api/get-free-day', async (req, res) => {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Не авторизован' });
+    
+    // Получаем IP
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.ip;
+    
+    try {
+        // Проверяем, получал ли этот IP уже бесплатный ключ
+        const ipCheck = await pool.query('SELECT * FROM free_keys_used WHERE ip_address = $1', [ip]);
+        if (ipCheck.rows.length > 0) {
+            return res.status(403).json({ success: false, message: 'Вы уже получали бесплатный ключ с этого IP!' });
+        }
+        
+        // Проверяем, получал ли этот пользователь уже бесплатный ключ
+        const userCheck = await pool.query('SELECT * FROM free_keys_used WHERE user_id = $1', [userId]);
+        if (userCheck.rows.length > 0) {
+            return res.status(403).json({ success: false, message: 'Вы уже получали бесплатный ключ!' });
+        }
+        
+        // Проверяем HWID пользователя
+        const userResult = await pool.query('SELECT hwid FROM users WHERE uid = $1', [userId]);
+        const userHwid = userResult.rows[0]?.hwid;
+        
+        if (userHwid) {
+            const hwidCheck = await pool.query('SELECT * FROM free_keys_used WHERE hwid = $1', [userHwid]);
+            if (hwidCheck.rows.length > 0) {
+                return res.status(403).json({ success: false, message: 'Бесплатный ключ уже был получен на этом ПК!' });
             }
-        });
+        }
+        
+        // Выдаём подписку на 1 день
+        const expiresDate = new Date();
+        expiresDate.setDate(expiresDate.getDate() + 1);
+        
+        await pool.query(
+            'UPDATE users SET subscription_type = $1, subscription_expires = $2 WHERE uid = $3',
+            ['1day', expiresDate.toISOString(), userId]
+        );
+        
+        // Записываем в таблицу использованных бесплатных ключей
+        await pool.query(
+            'INSERT INTO free_keys_used (ip_address, hwid, user_id) VALUES ($1, $2, $3)',
+            [ip, userHwid || null, userId]
+        );
+        
+        res.json({ success: true, message: 'Бесплатный день активирован! Подписка до ' + expiresDate.toLocaleString('ru-RU') });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Ошибка сервера' });
+    }
+});
 
-        db.run('DELETE FROM keys', (err) => {
-            if (err) {
-                console.error('Ошибка удаления ключей:', err);
-                return res.status(500).json({ 
-                    success: false, 
-                    message: 'Ошибка при удалении ключей' 
-                });
-            }
-        });
-
-        // Сбрасываем автоинкремент
-        db.run('DELETE FROM sqlite_sequence WHERE name="users"', (err) => {
-            if (err) console.error('Ошибка сброса автоинкремента users:', err);
-        });
-
-        db.run('DELETE FROM sqlite_sequence WHERE name="keys"', (err) => {
-            if (err) console.error('Ошибка сброса автоинкремента keys:', err);
-        });
-
+// API: Сброс базы данных (ОПАСНО!)
+app.post('/api/admin/reset-database', async (req, res) => {
+    const { confirm_password } = req.body;
+    const ADMIN_PASSWORD = 'irairairA1';
+    
+    if (confirm_password !== ADMIN_PASSWORD) {
+        return res.status(403).json({ success: false, message: 'Неверный пароль подтверждения' });
+    }
+    
+    try {
+        // Удаляем все данные
+        await pool.query('DELETE FROM keys');
+        await pool.query('DELETE FROM users');
+        
+        // Сбрасываем счётчик UID на 1
+        await pool.query('ALTER SEQUENCE users_uid_seq RESTART WITH 1');
+        await pool.query('ALTER SEQUENCE keys_id_seq RESTART WITH 1');
+        
         console.log('⚠️ БАЗА ДАННЫХ ПОЛНОСТЬЮ ОЧИЩЕНА!');
-        res.json({ 
-            success: true, 
-            message: 'База данных полностью очищена. Все пользователи и ключи удалены.' 
-        });
-    });
+        res.json({ success: true, message: 'База данных очищена' });
+    } catch (err) {
+        console.error('Ошибка сброса БД:', err);
+        res.status(500).json({ success: false, message: 'Ошибка сброса базы данных' });
+    }
 });
 
 // Запуск сервера
 app.listen(PORT, () => {
-    console.log(`Сервер запущен на порт ${PORT}`);
+    console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
