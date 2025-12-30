@@ -696,7 +696,7 @@ async function changePassword() {
 
 function saveRam() {
     const ram = document.getElementById('ramInput').value;
-    localStorage.setItem('vodka_ram', ram);
+    localStorage.setItem('dissent_ram', ram);
     closeModal('ram');
     alert('RAM сохранено: ' + ram + ' GB');
 }
@@ -710,7 +710,7 @@ function showMessage(div, text, success) {
 
 document.getElementById('downloadBtn').addEventListener('click', () => {
     if (userData && userData.subscription_active) {
-        window.open('https://www.dropbox.com/scl/fi/7p2hql3lhp3v98s633a3f/vodkaCiient.exe?rlkey=hchtczlxhm9dlidd2mlbpjn0u&st=w8h0f8un&dl=1', '_blank');
+        window.open('https://www.dropbox.com/scl/fi/7p2hql3lhp3v98s633a3f/DissentClient.exe?rlkey=hchtczlxhm9dlidd2mlbpjn0u&st=w8h0f8un&dl=1', '_blank');
     } else { alert('Нужна активная подписка'); }
 });
 
@@ -895,7 +895,7 @@ document.addEventListener('keydown', (e) => {
 function adminLogin() {
     const password = document.getElementById('adminPassword').value;
     const messageDiv = document.getElementById('adminMessage');
-    const ADMIN_PASSWORD = 'vodka2024admin';
+    const ADMIN_PASSWORD = 'dissent2024admin';
     
     if (password === ADMIN_PASSWORD) {
         adminAuthorized = true;
