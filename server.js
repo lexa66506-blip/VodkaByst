@@ -2,7 +2,6 @@ const express = require('express');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,26 +17,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
-// Сессии с хранением в PostgreSQL (не теряются при перезагрузке)
+// Сессии (простые, в памяти - для начала)
 app.use(session({
-    store: new pgSession({
-        pool: pool,
-        tableName: 'user_sessions',
-        createTableIfMissing: true
-    }),
     secret: 'dissent-client-secret-key-2024',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production', // true на Render (HTTPS)
+        secure: false,
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
         httpOnly: true,
         sameSite: 'lax'
     }
 }));
-
-// Trust proxy для Render (нужно для secure cookies за прокси)
-app.set('trust proxy', 1);
 
 // Инициализация таблиц
 async function initDB() {
